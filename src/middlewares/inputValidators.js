@@ -16,6 +16,7 @@ export const validatePhone = (req, res, next) => {
 const otpSchema = Joi.object({
     phone: Joi.string().min(10).max(10).required(),
     otp: Joi.string().min(6).max(6).required(),
+    userId: Joi.string().required()
 })
 
 export const validateOtp = (req, res, next) => {
@@ -30,7 +31,7 @@ export const validateOtp = (req, res, next) => {
 const profileDetailsShema = Joi.object({
     userName: Joi.string().min(3).required(),
     password: Joi.string().min(6).required(),
-    phone: Joi.string().min(10).max(10).required(),
+    userId: Joi.string().required(),
 })
 
 export const validateProfileDetails = (req, res, next) => {
@@ -55,3 +56,4 @@ export const validateLogin = (req, res, next) => {
     }
     next()
 }
+

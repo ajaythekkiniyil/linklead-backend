@@ -2,29 +2,43 @@ import pool from '../config/connection.js';
 import { sendOtpHelper } from '../helper/helper.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
 
 export const sendOtp = async (req, res) => {
     const { phone } = req.body;
 
     try {
-        // Check phone already exists
-        const user = await pool.query('SELECT * FROM users WHERE phone=$1;', [phone])
-        if (user.rowCount > 0) {
-            return res.status(409).json({ message: 'User alredy exist with this phone number' })
+        // Check phone number and phone_verified = true
+        const { rowCount: userExists } = await pool.query('SELECT 1 FROM users WHERE phone = $1 AND phone_verified=true;', [phone]);
+        if (userExists) {
+            return res.status(409).json({ message: 'User already exists with this phone number' });
         }
 
-        // Generate a 6-digit OTP
+        // Generate a 6-digit OTP and expiry time (1 minute from now)
         const otp = Math.floor(100000 + Math.random() * 900000);
+        const otpExpiry = new Date(Date.now() + 600000); // 10 minute
 
-        const otpExpiry = new Date(Date.now() + 600000); // 10 minutes from now
+        // // generate random user id
+        const user_id = randomUUID();
 
-        // Store phone, otp, expiry time in data base
-        await pool.query('INSERT INTO users (phone, otp, otp_expiry) VALUES ($1, $2, $3);', [phone, otp, otpExpiry])
+        // Store user_id, phone, OTP, and expiry in the database
+        // for resend otp update entry from db
+        const { rows } = await pool.query(
+            `INSERT INTO users (user_id, phone, otp, otp_expiry) VALUES ($1, $2, $3, $4)
+            ON CONFLICT (phone)
+            DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            otp = EXCLUDED.otp,
+            otp_expiry = EXCLUDED.otp_expiry
+            RETURNING user_id;
+            `,
+            [user_id, phone, otp, otpExpiry]
+        );
 
         // Send opt to user phone number
         const response = await sendOtpHelper(`+91${phone}`, otp)
 
-        return res.status(200).json({ message: 'OTP sent successfully', response });
+        return res.status(200).json({ message: 'OTP sent successfully', response, userId: rows[0].user_id });
     }
     catch (err) {
         return res.status(500).json({ message: 'Error while sending otp', err })
@@ -32,23 +46,19 @@ export const sendOtp = async (req, res) => {
 }
 
 export const verifyOtp = async (req, res) => {
-    const { phone, otp } = req.body;
+    const { phone, otp, userId } = req.body;
 
     try {
-        const user = await pool.query('SELECT * FROM users WHERE phone=$1;', [phone])
+        // verify otp
+        const { rows, rowCount } = await pool.query('SELECT * FROM users WHERE user_id=$1 AND phone=$2 AND otp=$3 AND otp_expiry > NOW();', [userId, phone, otp])
 
-        if (user.rowCount > 0) {
-            // verify otp
-            const result = await pool.query('SELECT * FROM users WHERE phone=$1 AND otp=$2 AND otp_expiry > NOW();', [phone, otp])
-
-            if (result.rowCount > 0) {
-                return res.status(200).json({ message: 'OTP verified successfully' })
-            }
-
-            return res.status(400).json({ message: 'OTP not verified successfully' })
+        if (rowCount === 0) {
+            return res.status(400).json({ message: 'OTP not verified' })
         }
 
-        return res.status(400).json({ message: 'Invalid phone number or otp' })
+        // updating phone_verified status 
+        await pool.query('UPDATE users SET phone_verified=$1 WHERE user_id=$2;', [true, userId])
+        return res.status(200).json({ message: 'OTP verified', userId: rows[0].user_id })
     }
     catch (err) {
         return res.status(500).json({ message: 'Error while verifing otp', err })
@@ -57,20 +67,24 @@ export const verifyOtp = async (req, res) => {
 
 // save username and password
 export const createProfile = async (req, res) => {
-    const { userName, password, phone } = req.body;
+    const { userName, password, userId } = req.body;
 
     try {
-        const user = await pool.query('SELECT * FROM users WHERE phone=$1;', [phone])
+        var { rowCount } = await pool.query('SELECT 1 FROM users WHERE user_id = $1;', [userId]);
 
-        if (user.rowCount > 0) {
-            const hashedPassword = await bcrypt.hash(password, 10);
-
-            await pool.query('UPDATE users SET user_name=$1, password=$2 WHERE phone=$3;', [userName, hashedPassword, phone])
-
-            return res.status(201).json({ message: 'User profile created' })
+        if (!rowCount) {
+            return res.status(404).json({ message: 'Profile updating error' })
         }
 
-        return res.status(404).json({ message: 'User not found!. For updating profile' })
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        const result = await pool.query('UPDATE users SET user_name=$1, password=$2 WHERE user_id=$3 AND phone_verified=true;', [userName, hashedPassword, userId])
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: 'Profile not verified' })
+        }
+
+        return res.status(201).json({ message: 'User profile created' })
     }
     catch (err) {
         return res.status(500).json({ message: 'Profile updating error', err })
@@ -82,20 +96,43 @@ export const login = async (req, res) => {
     const { userName, password } = req.body;
 
     try {
-        const user = await pool.query('SELECT user_name, password FROM users WHERE user_name=$1;', [userName])
-        const username = user.rows[0]?.user_name
-        const hashedPassword = user.rows[0].password
+        const { rows, rowCount } = await pool.query('SELECT * FROM users WHERE user_name=$1;', [userName])
+        const username = rows[0]?.user_name
+        const userId = rows[0]?.id
+        const hashedPassword = rows[0]?.password
 
-        if (user.rowCount === 0 || !(await bcrypt.compare(password, hashedPassword))) {
+        if (rowCount === 0 || !(await bcrypt.compare(password, hashedPassword))) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
         // generate token
         const token = jwt.sign({ username }, process.env.JWT_SECRET, { expiresIn: '7d' });
-        res.status(200).json({ message: 'Login success', token: token })
+        res.status(200).json({ message: 'Login success', userId, token: token })
     }
     catch (err) {
         return res.status(500).json({ message: 'Error while login', err })
     }
+}
+
+export const updateProfile = async (req, res) => {
+    const { name, userId } = req.body;
+    const fileName = req.file?.location
+
+    if (!userId) {
+        return res.status(400).json({ message: 'userId is required' });
+    }
+
+    try {
+        const sanitizedName = name && name.trim() !== '' ? name : null;
+        const sanitizedFileName = fileName && fileName.trim() !== '' ? fileName : null;
+
+        const { rows } = await pool.query('UPDATE users SET user_name=COALESCE($1, user_name), user_image=COALESCE($2, user_image) WHERE user_id=$3 RETURNING *;', [sanitizedName, sanitizedFileName, userId])
+
+        return res.status(200).json({ message: 'User profile updated' })
+    }
+    catch (err) {
+        return res.status(500).json({ message: 'User not found!. For updating profile' })
+    }
+
 }
 
