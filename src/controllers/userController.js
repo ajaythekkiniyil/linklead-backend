@@ -14,7 +14,7 @@ export const sendOtp = async (req, res) => {
             return res.status(409).json({ message: 'User already exists with this phone number' });
         }
 
-        // Generate a 6-digit OTP and expiry time (1 minute from now)
+        // Generate a 6-digit OTP and expiry time (10 minute from now)
         const otp = Math.floor(100000 + Math.random() * 900000);
         const otpExpiry = new Date(Date.now() + 600000); // 10 minute
 
@@ -45,8 +45,12 @@ export const sendOtp = async (req, res) => {
     }
 }
 
+// this function also used for resetting username or password
 export const verifyOtp = async (req, res) => {
-    const { phone, otp, userId } = req.body;
+    const { phone, otp, userId, userName, password } = req.body;
+
+    const sanitizedName = userName && userName.trim() !== '' ? userName : null;
+    const sanitizedPassword = password && password.trim() !== '' ? await bcrypt.hash(password, 10) : null;
 
     try {
         // verify otp
@@ -57,8 +61,9 @@ export const verifyOtp = async (req, res) => {
         }
 
         // updating phone_verified status 
-        await pool.query('UPDATE users SET phone_verified=$1 WHERE user_id=$2;', [true, userId])
-        return res.status(200).json({ message: 'OTP verified', userId: rows[0].user_id })
+        await pool.query('UPDATE users SET user_name = COALESCE($1, user_name), password = COALESCE($2, password), phone_verified = true WHERE user_id=$3;',[sanitizedName, sanitizedPassword, userId])
+
+        return res.status(200).json({ message: 'OTP verified data based values updated'})
     }
     catch (err) {
         return res.status(500).json({ message: 'Error while verifing otp', err })
@@ -114,8 +119,9 @@ export const login = async (req, res) => {
     }
 }
 
+// update username, photo
 export const updateProfile = async (req, res) => {
-    const { name, userId } = req.body;
+    const { userName, userId } = req.body;
     const fileName = req.file?.location
 
     if (!userId) {
@@ -123,11 +129,14 @@ export const updateProfile = async (req, res) => {
     }
 
     try {
-        const sanitizedName = name && name.trim() !== '' ? name : null;
+        const sanitizedName = userName && userName.trim() !== '' ? userName : null;
         const sanitizedFileName = fileName && fileName.trim() !== '' ? fileName : null;
 
-        const { rows } = await pool.query('UPDATE users SET user_name=COALESCE($1, user_name), user_image=COALESCE($2, user_image) WHERE user_id=$3 RETURNING *;', [sanitizedName, sanitizedFileName, userId])
+        const {rowCount, rows} = await pool.query('UPDATE users SET user_name=COALESCE($1, user_name), user_image=COALESCE($2, user_image) WHERE user_id=$3 RETURNING *;', [sanitizedName, sanitizedFileName, userId])
 
+        if(rowCount === 0){
+            return res.status(500).json({ message: 'User not found!. For updating profile' })
+        }
         return res.status(200).json({ message: 'User profile updated' })
     }
     catch (err) {
@@ -135,4 +144,40 @@ export const updateProfile = async (req, res) => {
     }
 
 }
+
+// create service
+export const createService = async (req, res) => {
+
+}
+
+// reset username or password
+export const forgotPassword = async (req, res) => {
+    const { userName, password, userId, phone } = req.body
+
+    if (!userId || !phone) {
+        return res.status(400).json({ message: 'userId and phone is required' });
+    }
+
+    try {
+        // send otp and verify phone number
+        // Generate a 6-digit OTP and expiry time (10 minute from now)
+        const otp = Math.floor(100000 + Math.random() * 900000);
+        const otpExpiry = new Date(Date.now() + 600000); // 10 minute
+
+        const { rowCount } = await pool.query(`UPDATE users SET otp_expiry = $1, otp = $2 WHERE user_id = $3 AND phone = $4 RETURNING *;`, [otpExpiry, otp, userId, phone]);
+
+        if (rowCount === 0) {
+            return res.status(500).json({ message: 'Error while resetting password, incorrect userId or phone' })
+        }
+
+        // Send opt to user phone number
+        const response = await sendOtpHelper(`+91${phone}`, otp)
+        return res.status(200).json({ message: 'Reset OTP sent successfully', response });
+    }
+    catch (err) {
+        return res.status(500).json({ message: 'Error while resetting password' })
+    }
+
+}
+
 

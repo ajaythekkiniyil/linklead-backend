@@ -16,7 +16,9 @@ export const validatePhone = (req, res, next) => {
 const otpSchema = Joi.object({
     phone: Joi.string().min(10).max(10).required(),
     otp: Joi.string().min(6).max(6).required(),
-    userId: Joi.string().required()
+    userId: Joi.string().required(),
+    userName: Joi.string().allow('').optional(),
+    password: Joi.string().min(6).required()
 })
 
 export const validateOtp = (req, res, next) => {
@@ -54,6 +56,21 @@ export const validateLogin = (req, res, next) => {
     if (error) {
         return res.status(400).json({ message: error.details[0].message })
     }
+    next()
+}
+
+const resetSchema = Joi.object({
+    // userName: Joi.string().allow().empty(),
+    // password: Joi.string().min(6),
+    // phone: Joi.string().min(10).max(10).required()
+})
+
+export const validateReset = (req, res, next) => {
+    // const { error } = resetSchema.validate(req.body)
+
+    // if (error) {
+    //     return res.status(400).json({ message: error.details[0].message })
+    // }
     next()
 }
 
