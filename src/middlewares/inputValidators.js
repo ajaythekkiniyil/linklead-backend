@@ -1,7 +1,7 @@
 import Joi from 'joi';
 
 const phoneSchema = Joi.object({
-    phone: Joi.string().min(10).max(10).required(),
+    phone: Joi.string().length(10).required(),
 })
 
 export const validatePhone = (req, res, next) => {
@@ -14,7 +14,7 @@ export const validatePhone = (req, res, next) => {
 }
 
 const otpSchema = Joi.object({
-    phone: Joi.string().min(10).max(10).required(),
+    phone: Joi.string().length(10).required(),
     otp: Joi.string().min(6).max(6).required(),
     userId: Joi.string().required(),
     userName: Joi.string().allow('').optional(),
@@ -30,14 +30,14 @@ export const validateOtp = (req, res, next) => {
     next()
 }
 
-const profileDetailsShema = Joi.object({
+const profileDetailsSchema = Joi.object({
     userName: Joi.string().min(3).required(),
     password: Joi.string().min(6).required(),
     userId: Joi.string().required(),
 })
 
 export const validateProfileDetails = (req, res, next) => {
-    const { error } = profileDetailsShema.validate(req.body)
+    const { error } = profileDetailsSchema.validate(req.body)
 
     if (error) {
         return res.status(400).json({ message: error.details[0].message })
@@ -45,13 +45,13 @@ export const validateProfileDetails = (req, res, next) => {
     next()
 }
 
-const loginShema = Joi.object({
+const loginSchema = Joi.object({
     userName: Joi.string().min(3).required(),
     password: Joi.string().min(6).required(),
 })
 
 export const validateLogin = (req, res, next) => {
-    const { error } = loginShema.validate(req.body)
+    const { error } = loginSchema.validate(req.body)
 
     if (error) {
         return res.status(400).json({ message: error.details[0].message })
@@ -59,18 +59,31 @@ export const validateLogin = (req, res, next) => {
     next()
 }
 
-const resetSchema = Joi.object({
-    // userName: Joi.string().allow().empty(),
-    // password: Joi.string().min(6),
-    // phone: Joi.string().min(10).max(10).required()
+const serviceSchema = Joi.object({
+    userId: Joi.string().required(),
+    business_name: Joi.string().required(),
+    address: Joi.string().required(),
+    pincode: Joi.string().length(6).required(),
+    city: Joi.string().required(),
+    state: Joi.string().required(),
+    description: Joi.string().required(),
+    social_media: Joi.array().items(Joi.string().uri()).optional().default([]),
+    photos: Joi.array().items(Joi.string().uri()).optional().default([]),
+    phone: Joi.string().length(10).required(),
+    reviews: Joi.array().items(
+        Joi.object({
+            rating: Joi.number().integer().min(1).max(5).required(),
+            comment: Joi.string().allow("").optional(),
+            date: Joi.date().iso().required()
+        })
+    ).optional().default([])
 })
 
-export const validateReset = (req, res, next) => {
-    // const { error } = resetSchema.validate(req.body)
+export const validateService = (req, res, next) => {
+    const { error } = serviceSchema.validate(req.body)
 
-    // if (error) {
-    //     return res.status(400).json({ message: error.details[0].message })
-    // }
+    if (error) {
+        return res.status(400).json({ message: error.details[0].message })
+    }
     next()
 }
-
