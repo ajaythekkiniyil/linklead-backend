@@ -1,5 +1,5 @@
 import express from 'express';
-import { sendOtp, verifyOtp, createProfile, login, updateProfile, createService, forgotPassword } from '../controllers/userController.js';
+import { sendOtp, verifyOtp, createProfile, login, updateProfile, createService, forgotPassword, getServices } from '../controllers/userController.js';
 import { validatePhone, validateOtp, validateProfileDetails, validateLogin, validateService } from '../middlewares/inputValidators.js';
 import { upload, verifyToken } from '../helper/helper.js';
 
@@ -15,5 +15,6 @@ router.put('/update-profile', verifyToken, upload.single('image'), updateProfile
 router.post('/forgot-password', verifyToken, forgotPassword)
 
 router.post('/create-service', verifyToken, validateService, createService)
+router.get('/get-services', verifyToken, getServices)
 
 export default router;

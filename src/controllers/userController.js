@@ -184,7 +184,7 @@ export const createService = async (req, res) => {
 
     try {
         // Insert into the services table
-        const { rowCount: serviceInsertCount, rows: serviceRows } = await pool.query(`
+        const { rowCount: serviceInsertCount } = await pool.query(`
             INSERT INTO services (
                 service_id, 
                 business_name, 
@@ -218,7 +218,7 @@ export const createService = async (req, res) => {
         }
 
         // Update the users table to append the new service ID to the service_ids column
-        const { rowCount: userUpdateCount, rows: updatedUserRows } = await pool.query(`
+        const { rowCount: userUpdateCount } = await pool.query(`
             UPDATE users 
             SET service_ids = array_append(service_ids, $1) 
             WHERE user_id = $2 
@@ -231,7 +231,29 @@ export const createService = async (req, res) => {
 
         return res.status(201).json({ message: 'Service created and user updated successfully' });
     } catch (err) {
-        console.error('Error while creating service:', err);
         return res.status(500).json({ message: 'Error while creating service', error: err.message });
+    }
+};
+
+export const getServices = async (req, res) => {
+    const { userId } = req.body;
+
+    if (!userId) {
+        return res.status(400).json({ message: 'userId required' })
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `
+                SELECT * FROM services
+                WHERE service_id = ANY (
+                    SELECT unnest(service_ids) FROM users WHERE user_id = $1
+                );
+            `, [userId])
+
+        return res.status(200).json({ services: rows })
+    }
+    catch (err) {
+        return res.status(500).json({ message: 'Error while get services', error: err.message });
     }
 };
