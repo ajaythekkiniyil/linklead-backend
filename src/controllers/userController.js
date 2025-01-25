@@ -4,46 +4,48 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 
+// this is for sending and resending otp
 export const sendOtp = async (req, res) => {
     const { phone } = req.body;
 
     try {
-        // Check phone number and phone_verified = true
-        const { rowCount: userExists } = await pool.query('SELECT 1 FROM users WHERE phone = $1 AND phone_verified=true;', [phone]);
-        if (userExists) {
+        // Check if the phone number is already verified
+        const { rowCount: isPhoneVerified } = await pool.query(
+            'SELECT 1 FROM users WHERE phone = $1 AND phone_verified = true;',
+            [phone]
+        );
+
+        if (isPhoneVerified) {
             return res.status(409).json({ message: 'User already exists with this phone number' });
         }
 
-        // Generate a 6-digit OTP and expiry time (10 minute from now)
+        // Generate a 6-digit OTP and expiry time (10 minutes from now)
         const otp = Math.floor(100000 + Math.random() * 900000);
-        const otpExpiry = new Date(Date.now() + 600000); // 10 minute
+        const otpExpiry = new Date(Date.now() + 300000); // 5 minutes
 
-        // generate random user id
-        const user_id = randomUUID();
-
-        // Store user_id, phone, OTP, and expiry in the database
-        // for resend otp update entry from db
+        // Store or update OTP and expiry in the database
         const { rows } = await pool.query(
-            `INSERT INTO users (user_id, phone, otp, otp_expiry) VALUES ($1, $2, $3, $4)
+            `
+            INSERT INTO users (user_id, phone, otp, otp_expiry) 
+            VALUES (COALESCE((SELECT user_id FROM users WHERE phone = $1), $2), $1, $3, $4)
             ON CONFLICT (phone)
             DO UPDATE SET
-            user_id = EXCLUDED.user_id,
-            otp = EXCLUDED.otp,
-            otp_expiry = EXCLUDED.otp_expiry
+                otp = EXCLUDED.otp,
+                otp_expiry = EXCLUDED.otp_expiry
             RETURNING user_id;
             `,
-            [user_id, phone, otp, otpExpiry]
+            [phone, randomUUID(), otp, otpExpiry]
         );
 
-        // Send opt to user phone number
-        const response = await sendOtpHelper(`+91${phone}`, otp)
+        // Send OTP to the user
+        const response = await sendOtpHelper(`+91${phone}`, otp);
 
         return res.status(200).json({ message: 'OTP sent successfully', response, userId: rows[0].user_id });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: 'Error while sending OTP', error: err.message });
     }
-    catch (err) {
-        return res.status(500).json({ message: 'Error while sending otp', err })
-    }
-}
+};
 
 // this function also used for resetting username or password
 export const verifyOtp = async (req, res) => {

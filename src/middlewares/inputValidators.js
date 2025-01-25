@@ -18,7 +18,7 @@ const otpSchema = Joi.object({
     otp: Joi.string().min(6).max(6).required(),
     userId: Joi.string().required(),
     userName: Joi.string().allow('').optional(),
-    password: Joi.string().min(6).required()
+    password: Joi.string().min(6).optional()
 })
 
 export const validateOtp = (req, res, next) => {

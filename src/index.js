@@ -13,8 +13,9 @@ app.use(cors())
 createTables()
 
 // Routes
+app.get('/', (req, res) => res.send('welcome to api'))
 app.use('/api', userRoutes)
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 
 app.listen(port, console.log(`Server listening on port: ${port}`));
