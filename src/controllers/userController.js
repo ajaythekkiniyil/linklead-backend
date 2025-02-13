@@ -19,7 +19,7 @@ export const sendOtp = async (req, res) => {
             return res.status(409).json({ message: 'User already exists with this phone number' });
         }
 
-        // Generate a 6-digit OTP and expiry time (10 minutes from now)
+        // Generate a 6-digit OTP and expiry time (5 minutes from now)
         const otp = Math.floor(100000 + Math.random() * 900000);
         const otpExpiry = new Date(Date.now() + 300000); // 5 minutes
 
@@ -147,19 +147,18 @@ export const updateProfile = async (req, res) => {
 
 }
 
-// reset username or password
 export const forgotPassword = async (req, res) => {
-    const { userName, password, userId, phone } = req.body
+    const { phone } = req.body
 
-    if (!userId || !phone) {
-        return res.status(400).json({ message: 'userId and phone is required' });
+    if (!phone) {
+        return res.status(400).json({ message: 'Phone is required' });
     }
 
     try {
         // send otp and verify phone number
-        // Generate a 6-digit OTP and expiry time (10 minute from now)
+        // Generate a 6-digit OTP and expiry time (5 minute from now)
         const otp = Math.floor(100000 + Math.random() * 900000);
-        const otpExpiry = new Date(Date.now() + 600000); // 10 minute
+        const otpExpiry = new Date(Date.now() + 300000); //5 minute
 
         const { rowCount } = await pool.query(`UPDATE users SET otp_expiry = $1, otp = $2 WHERE user_id = $3 AND phone = $4 RETURNING *;`, [otpExpiry, otp, userId, phone]);
 

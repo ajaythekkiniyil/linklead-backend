@@ -12,7 +12,7 @@ router.post('/create-profile', validateProfileDetails, createProfile);
 router.post('/login', validateLogin, login);
 router.put('/update-profile', verifyToken, upload.single('image'), updateProfile)
 // forgot username or password
-router.post('/forgot-password', verifyToken, forgotPassword)
+router.post('/forgot-password', validatePhone, forgotPassword)
 
 router.post('/create-service', verifyToken, validateService, createService)
 router.get('/get-services', verifyToken, getServices)
