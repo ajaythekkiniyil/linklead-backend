@@ -4,7 +4,6 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 
-// this is for sending and resending otp
 export const sendOtp = async (req, res) => {
     const { phone } = req.body;
 
@@ -23,72 +22,62 @@ export const sendOtp = async (req, res) => {
         const otp = Math.floor(100000 + Math.random() * 900000);
         const otpExpiry = new Date(Date.now() + 300000); // 5 minutes
 
-        // Store or update OTP and expiry in the database
-        const { rows } = await pool.query(
-            `
-            INSERT INTO users (user_id, phone, otp, otp_expiry) 
-            VALUES (COALESCE((SELECT user_id FROM users WHERE phone = $1), $2), $1, $3, $4)
-            ON CONFLICT (phone)
-            DO UPDATE SET
-                otp = EXCLUDED.otp,
-                otp_expiry = EXCLUDED.otp_expiry
-            RETURNING user_id;
-            `,
-            [phone, randomUUID(), otp, otpExpiry]
-        );
-
         // Send OTP to the user
         const response = await sendOtpHelper(`+91${phone}`, otp);
 
-        return res.status(200).json({ message: 'OTP sent successfully', response, userId: rows[0].user_id });
+        // If a user with the same phone does not exist, a new record is inserted.
+        // If the phone already exists, the otp and otp_expiry are updated.
+        await pool.query(
+            `insert into users (user_id, phone, otp, otp_expiry)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (phone)  
+            DO UPDATE SET otp = EXCLUDED.otp, otp_expiry = EXCLUDED.otp_expiry;`,
+            [randomUUID(), phone, otp, otpExpiry]
+        );
+
+        return res.status(200).json({ message: 'OTP sent successfully', response });
     } catch (err) {
-        console.error(err);
         return res.status(500).json({ message: 'Error while sending OTP', error: err.message });
     }
 };
 
-// this function also used for resetting username or password
 export const verifyOtp = async (req, res) => {
-    const { phone, otp, userId, userName, password } = req.body;
-
-    const sanitizedName = userName && userName.trim() !== '' ? userName : null;
-    const sanitizedPassword = password && password.trim() !== '' ? await bcrypt.hash(password, 10) : null;
+    const { phone, otp } = req.body;
 
     try {
-        // verify otp
-        const { rows, rowCount } = await pool.query('SELECT * FROM users WHERE user_id=$1 AND phone=$2 AND otp=$3 AND otp_expiry > NOW();', [userId, phone, otp])
+        const { rows, rowCount } = await pool.query('SELECT * FROM users WHERE phone=$1 AND otp=$2 AND otp_expiry > NOW();', [phone, otp])
 
         if (rowCount === 0) {
             return res.status(400).json({ message: 'OTP not verified' })
         }
 
         // updating phone_verified status 
-        await pool.query('UPDATE users SET user_name = COALESCE($1, user_name), password = COALESCE($2, password), phone_verified = true WHERE user_id=$3;', [sanitizedName, sanitizedPassword, userId])
+        await pool.query('UPDATE users SET phone_verified = true WHERE phone=$1;', [phone])
 
-        return res.status(200).json({ message: 'OTP verified data based values updated' })
+        return res.status(200).json({ message: 'OTP verified data based values updated', rows })
     }
     catch (err) {
         return res.status(500).json({ message: 'Error while verifing otp', err })
     }
 }
 
-// save username and password
+// creating a username and password for login
 export const createProfile = async (req, res) => {
-    const { userName, password, userId } = req.body;
+    const { username, password, phone, otp } = req.body;
 
     try {
-        var { rowCount } = await pool.query('SELECT 1 FROM users WHERE user_id = $1;', [userId]);
+        var { rowCount } = await pool.query('SELECT 1 FROM users WHERE phone = $1 AND otp = $2;', [phone, otp]);
 
         if (!rowCount) {
-            return res.status(404).json({ message: 'Profile updating error' })
+            return res.status(404).json({ message: 'No user found' })
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const result = await pool.query('UPDATE users SET user_name=$1, password=$2 WHERE user_id=$3 AND phone_verified=true;', [userName, hashedPassword, userId])
+        var { rowCount } = await pool.query('UPDATE users SET user_name=$1, password=$2 WHERE phone=$3 AND otp = $4 AND phone_verified=true;', [username, hashedPassword, phone, otp])
 
-        if (result.rowCount === 0) {
-            return res.status(404).json({ message: 'Profile not verified' })
+        if (rowCount === 0) {
+            return res.status(404).json({ message: 'Profile not created' })
         }
 
         return res.status(201).json({ message: 'User profile created' })
@@ -100,12 +89,14 @@ export const createProfile = async (req, res) => {
 
 // login
 export const login = async (req, res) => {
-    const { userName, password } = req.body;
+    const { username, password } = req.body;
 
     try {
-        const { rows, rowCount } = await pool.query('SELECT * FROM users WHERE user_name=$1;', [userName])
+        const { rows, rowCount } = await pool.query('SELECT * FROM users WHERE user_name=$1;', [username])
+
         const username = rows[0]?.user_name
-        const userId = rows[0]?.id
+        const userId = rows[0]?.user_id
+        const phone = rows[0]?.phone
         const hashedPassword = rows[0]?.password
 
         if (rowCount === 0 || !(await bcrypt.compare(password, hashedPassword))) {
@@ -113,7 +104,7 @@ export const login = async (req, res) => {
         }
 
         // generate token
-        const token = jwt.sign({ username }, process.env.JWT_SECRET, { expiresIn: '7d' });
+        const token = jwt.sign({ username, userId, phone }, process.env.JWT_SECRET, { expiresIn: '7d' });
         res.status(200).json({ message: 'Login success', userId, token: token })
     }
     catch (err) {
@@ -123,27 +114,29 @@ export const login = async (req, res) => {
 
 // update username, photo
 export const updateProfile = async (req, res) => {
-    const { userName, userId } = req.body;
-    const fileName = req.file?.location
+    const { username, userId } = req.user;
 
-    if (!userId) {
-        return res.status(400).json({ message: 'userId is required' });
-    }
+    // const { newUserName } = req.body;
+    // const fileName = req.file?.location
 
-    try {
-        const sanitizedName = userName && userName.trim() !== '' ? userName : null;
-        const sanitizedFileName = fileName && fileName.trim() !== '' ? fileName : null;
+    // if (!userId) {
+    //     return res.status(400).json({ message: 'userId is required' });
+    // }
 
-        const { rowCount, rows } = await pool.query('UPDATE users SET user_name=COALESCE($1, user_name), user_image=COALESCE($2, user_image) WHERE user_id=$3 RETURNING *;', [sanitizedName, sanitizedFileName, userId])
+    // try {
+    //     const sanitizedName = userName && userName.trim() !== '' ? userName : null;
+    //     const sanitizedFileName = fileName && fileName.trim() !== '' ? fileName : null;
 
-        if (rowCount === 0) {
-            return res.status(500).json({ message: 'User not found!. For updating profile' })
-        }
-        return res.status(200).json({ message: 'User profile updated' })
-    }
-    catch (err) {
-        return res.status(500).json({ message: 'User not found!. For updating profile' })
-    }
+    //     const { rowCount, rows } = await pool.query('UPDATE users SET user_name=COALESCE($1, user_name), user_image=COALESCE($2, user_image) WHERE user_id=$3 RETURNING *;', [sanitizedName, sanitizedFileName, userId])
+
+    //     if (rowCount === 0) {
+    //         return res.status(500).json({ message: 'User not found!. For updating profile' })
+    //     }
+    //     return res.status(200).json({ message: 'User profile updated' })
+    // }
+    // catch (err) {
+    //     return res.status(500).json({ message: 'User not found!. For updating profile' })
+    // }
 
 }
 

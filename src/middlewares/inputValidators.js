@@ -1,7 +1,9 @@
 import Joi from 'joi';
 
+const phoneValidation = Joi.string().length(10).trim().pattern(/^[^<>]*$/).required();
+
 const phoneSchema = Joi.object({
-    phone: Joi.string().length(10).required(),
+    phone: phoneValidation,
 })
 
 export const validatePhone = (req, res, next) => {
@@ -14,11 +16,11 @@ export const validatePhone = (req, res, next) => {
 }
 
 const otpSchema = Joi.object({
-    phone: Joi.string().length(10).required(),
-    otp: Joi.string().min(6).max(6).required(),
-    userId: Joi.string().required(),
-    userName: Joi.string().allow('').optional(),
-    password: Joi.string().min(6).optional()
+    phone: phoneValidation,
+    otp: Joi.string().length(6).trim().pattern(/^[^<>]*$/).required(),
+    // userId: Joi.string().required(),
+    // userName: Joi.string().allow('').optional(),
+    // password: Joi.string().min(6).optional()
 })
 
 export const validateOtp = (req, res, next) => {
@@ -31,9 +33,10 @@ export const validateOtp = (req, res, next) => {
 }
 
 const profileDetailsSchema = Joi.object({
-    userName: Joi.string().min(3).required(),
-    password: Joi.string().min(6).required(),
-    userId: Joi.string().required(),
+    username: Joi.string().min(4).required(),
+    password: Joi.string().min(8).required(),
+    phone: phoneValidation,
+    otp: Joi.string().length(6).trim().pattern(/^[^<>]*$/).required(),
 })
 
 export const validateProfileDetails = (req, res, next) => {
@@ -46,8 +49,8 @@ export const validateProfileDetails = (req, res, next) => {
 }
 
 const loginSchema = Joi.object({
-    userName: Joi.string().min(3).required(),
-    password: Joi.string().min(6).required(),
+    username: Joi.string().min(4).required(),
+    password: Joi.string().min(8).required(),
 })
 
 export const validateLogin = (req, res, next) => {

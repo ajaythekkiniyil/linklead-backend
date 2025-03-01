@@ -6,6 +6,8 @@ const createTables = async () => {
         user_id UUID PRIMARY KEY,
         user_name VARCHAR(100) UNIQUE,
         password VARCHAR(100),
+        first_name VARCHAR(20),
+        Llast_name VARCHAR(20),
         phone VARCHAR(10) NOT NULL UNIQUE,
         otp VARCHAR(6),
         otp_expiry TIMESTAMPTZ,

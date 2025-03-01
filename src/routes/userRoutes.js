@@ -5,8 +5,9 @@ import { upload, verifyToken } from '../helper/helper.js';
 
 const router = express.Router();
 
-// login using phone number
+// this end-point using for both sending otp and re-sending.
 router.post('/send-otp', validatePhone, sendOtp);
+
 router.post('/verify-otp', validateOtp, verifyOtp);
 router.post('/create-profile', validateProfileDetails, createProfile);
 router.post('/login', validateLogin, login);
